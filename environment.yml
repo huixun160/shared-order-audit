@@ -1,0 +1,37 @@
+# conda env create -f environment.yml
+# conda activate eeg-fnirs
+name: eeg-fnirs
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pip
+  # scientific core
+  - numpy>=1.26
+  - scipy>=1.11
+  - pandas>=2.1
+  - pyarrow>=14          # parquet result tables
+  - scikit-learn>=1.4
+  - statsmodels>=0.14
+  # neuro I/O + preprocessing
+  - mne>=1.6
+  - mne-nirs>=0.7
+  - pymatreader>=0.0.32  # reads both v7 and v7.3 .mat
+  - h5py>=3.10
+  # plotting
+  - matplotlib>=3.8
+  - seaborn>=0.13
+  # config / cli / logging
+  - pyyaml>=6.0
+  - omegaconf>=2.3
+  - rich>=13.7
+  - tqdm>=4.66
+  # dev
+  - pytest>=8.0
+  - ruff>=0.4
+  - ipykernel
+  - jupyterlab
+  - pip:
+      # torch is installed separately -- see README (CPU / CUDA / ROCm differ)
+      - torch>=2.2

@@ -1,0 +1,40 @@
+# data & results (never commit)
+data/
+results/
+runs/
+wandb/
+*.zip
+*.mat
+*.eeg
+*.vhdr
+*.vmrk
+*.wl1
+*.wl2
+*.nirs
+*.fif
+*.npz
+*.h5
+*.ckpt
+*.pt
+
+# python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# keep directory placeholders
+!.gitkeep
