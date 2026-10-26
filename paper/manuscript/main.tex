@@ -16,6 +16,7 @@
 \graphicspath{{figures/}}
 \sisetup{detect-all}
 \newcommand{\pp}{\,pp}
+\newcommand{\Rr}{\ensuremath{\mathrm{R}\!\to\!\mathrm{T}}}
 
 \journal{Journal of Neuroscience Methods}
 
@@ -23,34 +24,35 @@
 
 \begin{frontmatter}
 
-\title{Shared presentation order leaks through subject-independent evaluation of fNIRS workload decoders: a multi-dataset audit with a null-window probe}
+\title{Shared presentation order leaks through subject-independent evaluation of fNIRS decoders: identifiability, a validated two-step diagnostic, and a multi-dataset audit}
 
 \author[aff1]{Pinzhen He\corref{cor1}}
 \cortext[cor1]{Corresponding author.}
+\ead{baijihuixun@163.com}
 \address[aff1]{Independent Researcher, Tokyo, Japan}
 
 \begin{abstract}
-\textbf{Background:} Subject-independent evaluation (e.g.\ leave-one-subject-out, LOSO) is regarded as protection against leakage in brain decoding. Yet several public EEG/fNIRS datasets present the same condition sequence to every participant, so session position, drift and carry-over can predict labels in a held-out subject.
+\textbf{Background:} Leave-one-subject-out (LOSO) evaluation is regarded as protection against temporal confounds in brain decoding. When every participant receives the same condition sequence, session position, carry-over and drift align with the labels in held-out subjects too.
 
-\textbf{New method:} A model-agnostic null-window probe: LOSO decoding of the upcoming condition from a window that ends before the block and any cue, combined with causal or no filtering, label-free offset removal, a drift-injection positive control, a per-subject-order negative control, and two tests needing no pre-onset window (task-to-rest transfer; reversed block pairs).
+\textbf{New method:} A two-step diagnostic. Step 1 decodes the upcoming condition from a window ending before the block and any cue (null-window probe); step 2 trains on those windows and tests on task windows (rest-to-task transfer). We add design-only ceilings, identifiability analysis, source-separating conditional decoding and permutation statistics, validated by simulation.
 
-\textbf{Results:} At least eight public datasets share one order. In three fNIRS datasets the upcoming condition was decodable before onset: Shin 2018 n-back (+6.3 points, causal filter, $n=26$), Tufts fNIRS2MW (+6.9, causal baseline, $n=68$), and Chen 2023 Stroop, where decoding fell to chance on temporally reversed pairs ($n=18$). Conventional preprocessing gave 12--17 points. With per-subject order the probe was at chance; EEG showed no effect. About 80\% of a published BenchNIRS margin was available 12\,s before onset; the official Tufts DeepConvNet tracked session position as strongly as load; Con4m was unaffected.
+\textbf{Results:} Eight public EEG/fNIRS datasets share one order. Latin squares rotated across subjects balance position but not transitions: the previous condition alone predicted the current one with 80\% accuracy. In simulation, the probe was at chance under noise and conditional decoding attributed sources correctly; step 1 did not predict task-decoding inflation, step 2 did. In real fNIRS, null windows carried order information in Shin 2018 ($n=26$) and Tufts fNIRS2MW ($n=68$) for six decoders. In Shin it arose from previous-block carry-over and did not reach task windows (transfer $\le 0$); in Tufts' final blocks 42--100\% of task-decoding accuracy was obtainable from pre-cue windows. A per-subject-order control was at chance.
 
-\textbf{Comparison with existing methods:} Earlier work showed within-subject temporal confounds and proposed subject-independent splits as the remedy; this remedy fails under shared order.
+\textbf{Comparison with existing methods:} Prior work treated subject-independent splits as the remedy for temporal confounds; we show when that fails, how to detect it and when it matters.
 
-\textbf{Conclusions:} Holding out a participant does not hold out a shared sequence. Order should be randomised per participant, and decoding studies should report a null-window or reversed-pair control.
+\textbf{Conclusions:} Order should be randomised per participant; LOSO studies on shared-order data should report both diagnostic steps.
 \end{abstract}
 
 \begin{highlights}
-\item Eight public EEG/fNIRS datasets present one block order to every participant.
-\item Leave-one-subject-out testing does not remove information carried by that order.
-\item A pre-onset null-window probe detects it in three fNIRS datasets (+6 to +7 points).
-\item Most of one published fNIRS benchmark margin is available before blocks start.
-\item The effect depends on pipeline: one published model was unaffected.
+\item Eight public EEG/fNIRS datasets present one condition order to all participants.
+\item Latin squares across subjects balance block position but not block transitions.
+\item A null-window probe detects order information under leave-one-subject-out.
+\item Rest-to-task transfer predicts when that information inflates task decoding.
+\item Validated with ground-truth simulation, six decoders and a negative control.
 \end{highlights}
 
 \begin{keyword}
-fNIRS \sep EEG \sep mental workload \sep data leakage \sep cross-validation \sep experimental design \sep benchmark
+fNIRS \sep EEG \sep mental workload \sep data leakage \sep cross-validation \sep experimental design \sep carry-over
 \end{keyword}
 
 \end{frontmatter}
@@ -60,73 +62,95 @@ fNIRS \sep EEG \sep mental workload \sep data leakage \sep cross-validation \sep
 \section{Introduction}
 \label{sec:intro}
 
-Decoding mental workload from functional near-infrared spectroscopy (fNIRS), alone or together with EEG, is an active field with a growing number of public benchmarks \citep{shin2018,huang2021,chen2023}. Reported accuracies on the same data differ widely. Within-subject evaluations on the Shin et al.\ n-back data often exceed 90\%, while careful subject-independent evaluations of the same or similar problems land between 39\% and 56\% for three classes \citep{benerradi2023,khan2026}. That gap is usually attributed to subject-specific signal and to leakage between temporally adjacent training and test samples, and subject-independent evaluation is commonly prescribed as the remedy \citep{brookshire2024}.
+Decoding mental workload from functional near-infrared spectroscopy (fNIRS), alone or with EEG, relies increasingly on public benchmarks \citep{shin2018,huang2021,chen2023}. Reported accuracies on the same data range from above 90\% (within-subject) to 39--56\% for three classes under subject-independent evaluation \citep{benerradi2023,khan2026}. Subject-independent evaluation, typically leave-one-subject-out (LOSO), is the standard prescription against leakage \citep{brookshire2024}.
 
-Temporal confounds in block designs are well documented. When all trials of a class occur in one contiguous block, a classifier can decode recording time instead of the stimulus \citep{li2021,ahmed2022,xu2026}, and filtering can move information backwards across event onsets \citep{vandriel2021}. These demonstrations are within-subject. When they were extended across subjects, accuracy fell to chance \citep{li2021,ahmed2022,xu2026}. Subject-independent splitting has therefore come to be seen as a fix.
+Temporal confounds in block designs are well documented within subjects: classifiers can decode recording time instead of the stimulus \citep{li2021,ahmed2022,xu2026}, filtering moves information backwards across onsets \citep{vandriel2021}, and pre-stimulus decoding serves as a sanity check \citep{grootswagers2017}. When these analyses were repeated across subjects, accuracy fell to chance \citep{li2021,ahmed2022,xu2026}, and subject-independent splitting came to be seen as a remedy.
 
-That conclusion holds only if the test subject's temporal structure is unrelated to the labels learned from the training subjects. It is not when every participant receives the same condition sequence. Position in the session, the identity of the preceding block, the length of the rest that follows it, and slow drift are then aligned with the label in the same way for everyone. A decoder trained on some subjects can exploit that alignment in a new subject. The mechanism was noted in a methods paragraph of an fMRI study \citep{barbu2015}. To our knowledge it has not been quantified, given a diagnostic, or examined in public EEG/fNIRS benchmarks.
+That remedy assumes that a held-out subject's temporal structure is unrelated to the labels learned from the others. It fails when every participant receives the same condition sequence: block position, the preceding condition, rest durations and slow drift are then aligned with the label in the same way for everyone. An fMRI study noted this possibility in passing \citep{barbu2015}. Whether it affects EEG/fNIRS benchmarks, how large it is, which of the aliased sources produces it, and whether it changes reported task-decoding accuracy have not been established.
 
-Here we (i) survey public EEG/fNIRS datasets for shared presentation order; (ii) introduce a null-window probe and controls; (iii) measure order information in three fNIRS datasets; and (iv) re-run three published decoders to see whether their reported performance depends on it.
+We address these questions with a design-level and a data-level analysis (Table~\ref{tab:novelty}). At the design level we compute how much label information a sequence carries by itself and when its temporal sources are identifiable. At the data level we propose a two-step diagnostic, validate it in simulation with known ground truth, apply it to three public fNIRS datasets and six decoders, and re-run three published methods.
+
+\begin{table}[htbp]
+\centering
+\caption{Relation to prior work on temporal confounds in neural decoding.}
+\label{tab:novelty}
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.2cm}@{}}
+\toprule
+Work & What it shows & What is added here \\
+\midrule
+Li 2021; Ahmed 2022 \citep{li2021,ahmed2022} & Block-design EEG decodes time within subjects; LOSO restores chance & Conditions under which LOSO does \emph{not} restore chance \\
+Xu 2026 \citep{xu2026} & Autocorrelation leaks with no neural signal (within subject) & Cross-subject case; sources identified \\
+van Driel 2021 \citep{vandriel2021} & Zero-phase filters create pre-onset decoding & Causal/no-filter controls; filter phase inflates by $\sim$7\pp \\
+Grootswagers 2017 \citep{grootswagers2017} & Pre-stimulus decoding as a sanity check & Pre-cue windows under LOSO, plus rest-to-task transfer \\
+G\"orgen 2018 \citep{gorgen2018} & Decode design variables to expose confounds (fMRI) & Design-only ceilings; transitions vs position \\
+Barbu 2015 \citep{barbu2015} & Shared order may confound cross-subject fMRI decoding (remark) & Quantified in three datasets, six decoders \\
+Kilgallen 2025; Hu 2021 \citep{kilgallen2025,hu2021} & Repeated / shared stimuli inflate accuracy & Shared \emph{order}, not stimulus identity \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 %% ============================================================================
 \section{Materials and methods}
 \label{sec:methods}
 
 \subsection{Census of presentation order}
-We examined public EEG and fNIRS datasets that are used for decoding and are distributed with continuous recordings or event timing. Where possible, order was read from the released event files (BrainVision markers, NIRx event files, BIDS \texttt{events.tsv}, MATLAB marker structures) rather than from the descriptor paper. Where only documentation was available this is stated.
+We examined public EEG and fNIRS datasets used for decoding and distributed with continuous recordings or event timing. Order was read from released event files (BrainVision markers, NIRx event files, BIDS \texttt{events.tsv}, MATLAB marker structures) where possible; documentation-only cases are marked.
 
 \subsection{Datasets analysed}
-\textbf{Shin et al.\ 2018 n-back} \citep{shin2018}: 26 participants, simultaneous EEG (28 channels, \SI{1000}{Hz}) and fNIRS (36 channels, \SI{10.4}{Hz}); 0-, 2- and 3-back blocks of \SI{40}{s} preceded by a \SI{2}{s} instruction showing the task type and followed by \SI{20}{s} rest; three runs of nine blocks. Word generation (WG) from the same session served as negative control (below).
+\textbf{Shin et al.\ 2018 n-back} \citep{shin2018}: 26 participants, fNIRS (36 channels, \SI{10.4}{Hz}) and EEG (28 channels); 0-, 2- and 3-back blocks of \SI{40}{s} preceded by a \SI{2}{s} instruction and followed by \SI{20}{s} rest; three runs of nine blocks. The three run orders differ but are identical across participants. Word generation (WG) from the same session, with per-participant random trial order, served as negative control.
+\textbf{Tufts fNIRS2MW} \citep{huang2021}: 68 participants, frequency-domain fNIRS (\SI{5.2}{Hz}); 16 n-back blocks (0--3-back, $\sim$\SI{83}{s}). Probes used the raw release; benchmark analyses used the official filtered task segments and 30\,s windows.
+\textbf{Chen et al.\ 2023 Stroop} \citep{chen2023}: 21 participants, fNIRS (20 channels, \SI{100}{Hz}); four \SI{32}{s} blocks (neutral or incongruent).
+\textbf{PhysioNet mental-fnirs} \citep{mukli2021}: 12 participants; four $\sim$\SI{134}{s} blocks in the fixed order 0-, 1-, 0-, 2-back.
 
-\textbf{Tufts fNIRS2MW} \citep{huang2021}: 68 eligible participants, frequency-domain fNIRS (two forehead probes, intensity and phase at two wavelengths, \SI{5.2}{Hz}); 16 n-back blocks (0--3-back, $\sim$\SI{83}{s}). For the null-window probe we used the raw release (Section~\ref{sec:res-data}). For benchmark analyses we used the official band-pass-filtered task segments and the official 30\,s sliding windows.
+\subsection{Two-step diagnostic}
+\label{sec:diagnostic}
+\emph{Step 1, null-window probe.} For each block we take a window that ends before the block and before any cue about it (Shin: ending \SI{2}{s} before the instruction; Tufts: ending at the instruction, inside the rest after the previous block) and decode the upcoming condition with LOSO. Above-chance accuracy shows that the design and the signal together carry order information that a held-out subject shares.
 
-\textbf{Chen et al.\ 2023 Stroop} \citep{chen2023}: 21 participants, EEG (34 channels) and fNIRS (20 channels, \SI{100}{Hz}); four \SI{32}{s} blocks of a Chinese colour--word Stroop task (neutral or incongruent), separated by $\sim$\SI{24}{s} breaks. We analysed raw fNIRS optical density.
+\emph{Step 2, rest-to-task transfer (\Rr).} A decoder trained only on null windows is tested on task windows (20--24\,s or 20--30\,s after onset) of the held-out subject. Above-chance transfer shows that the order information is present in the task window in the same form, so it can contribute to task-decoding accuracy. The ratio \Rr/task gives the share of task accuracy obtainable without task data.
 
-\textbf{PhysioNet mental-fnirs} \citep{mukli2021}: 12 participants with fNIRS; four $\sim$\SI{134}{s} blocks in the fixed order 0-, 1-, 0-, 2-back.
+\emph{Preprocessing controls.} (a) Filtering: zero-phase, causal (minimum-phase) band-pass, causal low-pass only, or none. (b) Offset removal: a label-free per-recording constant (recording mean, or a strictly causal mean over data before all probe windows); no per-block baselines. (c) Windows never overlap cue periods.
 
-\subsection{Null-window probe}
-For each block we extracted a \SI{4}{s} window that ends before the block and before any cue about it. In Shin, the window ends \SI{2}{s} (the instruction) plus a gap $g\in\{0,2,4\}$\,s before the marked onset. In Tufts, it ends at the start of the instruction screen, inside the rest that follows the previous block. Features were the per-channel mean and least-squares slope within the window. For EEG they were log band power (theta, alpha, beta) per channel.
+\emph{Features and classifier.} Per-channel window mean and least-squares slope; standardisation and L2 logistic regression ($C=0.1$); per-subject balanced accuracy, so chance is $1/k$ whatever the class counts.
 
-Three preprocessing choices determine whether such a window can contain post-onset or label information through the analysis itself, and each was controlled:
-(a) \emph{Filtering.} Zero-phase filters can move post-onset activity into the window \citep{vandriel2021}. We compared zero-phase, causal (minimum-phase) band-pass, causal low-pass only, and no filtering.
-(b) \emph{Baseline.} Per-block baselines taken just before onset overlap the window, so no per-block baseline was used. Between-subject offsets were removed by subtracting a label-free per-recording constant: either the recording mean, or a strictly causal mean over data recorded before all probe windows.
-(c) \emph{Cue.} Windows never overlapped the instruction or cue period.
+\emph{Statistics.} Per-subject LOSO accuracies are not independent because folds share training data \citep{varoquaux2018}. Our primary test is a permutation test \citep{ojala2010} in which, within each subject, the assignment of labels to blocks is permuted and the entire LOSO pipeline is re-run (500 permutations); this preserves fold dependence, class counts and the pairing of null and task windows from the same block, and corresponds to a per-subject random order. In simulation (Section~\ref{sec:res-sim}) this test was close to nominal but not exact, so only $p<0.01$ is treated as primary evidence. For deep networks, where permutation was too costly, we report one-sided Wilcoxon tests and bootstrap intervals with the same threshold.
 
-Classification was LOSO with standardisation and L2-regularised logistic regression; $C$ was chosen by inner subject-grouped 5-fold cross-validation. The unit of analysis is the participant. We used one-sided Wilcoxon signed-rank tests of per-subject accuracy against chance. For Tufts we additionally used a permutation null in which labels were permuted independently within each participant (500 permutations), which corresponds to per-subject randomised order.
+\subsection{Design-only ceilings and identifiability}
+For a given assignment of orders to subjects we compute the Bayes-optimal accuracy of predicting a block's condition from its position alone, or from the previous condition alone, pooled over subjects and with no signal. To assess identifiability we regress the null-window level on block position, previous load and previous rest duration with subject fixed effects, and report the condition number of the design matrix.
 
-\subsection{Positive and negative controls}
-\emph{Drift injection (positive control).} In Tufts we shuffled each participant's three null-window feature vectors across positions, which destroys any real order information. We then added $k$ times the observed group-mean change per position ($k \in \{0, 0.25, 0.5, 1, 2\}$, 20 repetitions) and labelled positions by the shared order.
+\subsection{Conditional decoding}
+\label{sec:conditional}
+To separate carry-over from position and drift where the design permits it (Shin, whose three run orders differ), we decode the upcoming load from null windows separately within strata that hold one design variable fixed: blocks with the same previous load, or blocks at the same position within a run. Carry-over predicts that accuracy vanishes when the previous load is fixed and persists when position is fixed; drift predicts the opposite pattern for the previous-load stratum.
 
-\emph{Per-subject order (negative control).} The Shin WG task was recorded in the same session, with the same participants, montage and preprocessing, but its trial order is randomised per participant (24 distinct sequences among 26 participants, read from the markers). We report the probe for the current label. We also report two quantities that the shared randomisation \emph{rule} supplies without any data: the label differs from the previous one with probability 0.62 for everyone, and each run contains exactly ten trials of each class.
+\subsection{Simulation}
+\label{sec:sim-methods}
+Synthetic HbO-like signals (8 channels, \SI{5}{Hz}, 40 subjects) comprised a load-dependent task response convolved with a double-gamma HRF (its tail is genuine carry-over), an optional extra post-block recovery term proportional to the previous load ($\kappa$), a slow drift whose group mean ($\mu$) is shared across subjects and whose individual deviation is not, an optional step per block position ($\phi$), subject offsets, cardiac/respiratory/Mayer oscillations and AR(1) noise. Timing followed Tufts (16 blocks) or Shin (three runs of nine). Designs: one shared order; shared order with load-dependent rest; Latin-square rows rotated across subjects; per-subject random order; per-subject random order under a common rule (no immediate repeats). Experiments: E1 calibration under pure noise (200 seeds per design); E2/E6 sensitivity and task-decoding inflation as functions of each component and of task effect size, with inflation defined as task accuracy with the component minus the same design and seed without it; E3 identifiability; E5 validation of conditional decoding with exactly one source switched on.
 
-\subsection{Tests that do not rely on a pre-onset window}
-\emph{Task--rest transfer (Tufts).} Using the raw final four blocks of all 68 participants, we trained on task windows or on rest-end windows and tested on either, giving four combinations (LOSO).
+\subsection{Controls and reversed pairs}
+\emph{Drift injection (Tufts).} Each participant's null-window vectors were shuffled across positions, then $k$ times the observed group-mean drift per position was added ($k\in\{0,0.25,0.5,1,2\}$, 20 repetitions).
+\emph{Per-subject order (Shin WG).} Same participants, montage and pipeline as the n-back positive.
+\emph{Reversed pairs (Chen).} Every participant saw neutral, incongruent, neutral, incongruent (recovered from the data; the descriptor states N-N-I-I). A condition decoder should be equally accurate on forward (neutral first) and reverse (incongruent first) pairs; a time decoder fails on the reverse pair.
 
-\emph{Reversed pairs (Chen).} The released event codes and the authors' per-condition preprocessed files show that every participant saw neutral, incongruent, neutral, incongruent (Section~\ref{sec:res-census}). Neutral--incongruent pairs therefore occur in two temporal directions: forward (positions 1--2 and 3--4, neutral first) and reverse (2--3, incongruent first). A decoder that reads condition should be equally accurate on both. A decoder that has learnt ``later means incongruent'' should be accurate on forward pairs and fail on the reverse pair.
-
-\emph{Decoder output versus session position (Tufts official data).} A 0-vs-2-back decoder was applied to all 16 blocks of each held-out participant. Its block-averaged probability of ``0-back'' was regressed on true load, block position and whether the previous block was a 3-back. The model included subject fixed effects, with standard errors clustered by subject.
+\subsection{Benchmark of six decoders}
+Logistic regression, RBF-SVM and random forest on mean/slope features; EEGNet, a reduced DeepConvNet and an LSTM on raw 10\,s windows (channels $\times$ 50 samples; fixed hyperparameters, no tuning on test subjects). ShallowConvNet was also run but did not decode the task itself reliably (task excess +1.5 to +3.7\pp, $p\ge0.019$), presumably because its squaring-and-log stage targets EEG band power, and it is not considered further. Each model was evaluated on step 1, step 2 and task decoding in Shin (no filter; causal) and Tufts (final blocks; 3-class and 0 vs 2).
 
 \subsection{Re-running published methods}
-\emph{BenchNIRS} \citep{benerradi2023}: package version 1.7.1 with its own Shin n-back loader and the published ``generalised'' pipeline (IIR band-pass 0.01--0.5\,Hz, TDDR, baseline $-2$ to 0\,s, four ROI channels, mean/std/slope over 0--9.9\,s). The only change was to shift every block marker 12\,s (or 16\,s) earlier before epoching. The feature window then lies entirely before the instruction. Accuracy was scored with the published nested 5-fold scheme and with LOSO for per-subject statistics.
-
-\emph{Tufts DeepConvNet} \citep{huang2021}: the official architecture, official 30\,s windows and the official 17 test buckets (48 train / 16 validation / 4 test participants). To fit CPU time, every third training window was used, the learning rate was searched over $\{0.001, 0.01\}$, and training ran for at most 40 epochs with early stopping on validation accuracy.
-
-\emph{Con4m} \citep{chen2024con4m}: the authors' code on Tufts 0 vs 2-back (one of their 12 splits; 17 test participants). The official task segments are butted together with rest removed. We re-concatenated each participant's 16 blocks in an independent random order, which leaves block content unchanged, and crossed training and test order. Test databases were regenerated with five sampling seeds (fixed order) and five shuffles (shuffled order), with participant groups held constant.
+\emph{BenchNIRS} \citep{benerradi2023}: package 1.7.1, published pipeline, with block markers shifted 12\,s earlier so that features lie before the instruction. \emph{Tufts DeepConvNet} \citep{huang2021}: official architecture, windows and 17 test buckets (CPU-limited grid). \emph{Con4m} \citep{chen2024con4m}: authors' code on one of 12 splits, with blocks re-concatenated in per-participant random order.
 
 \subsection{Software and data availability}
-All analyses used Python (MNE, scikit-learn, PyTorch). Scripts \texttt{20\_}--\texttt{32\_} and \texttt{91\_}--\texttt{92\_} in the accompanying repository reproduce every number and figure from the public datasets. Code: \url{https://github.com/huixun160/shared-order-audit}.
+Python (MNE, scikit-learn, PyTorch). Scripts \texttt{20\_}--\texttt{48\_} and \texttt{91\_}--\texttt{93\_} reproduce every number and figure from the public data: \url{https://github.com/huixun160/shared-order-audit}.
 
 %% ============================================================================
 \section{Results}
 \label{sec:results}
 
-\subsection{Shared order is common, and sometimes misdescribed}
+\subsection{Shared order is common and sometimes misdescribed}
 \label{sec:res-census}
-Table~\ref{tab:census} lists the datasets examined. At least eight present one sequence to every participant. They include two widely used fNIRS workload benchmarks (Fig.~\ref{fig:designs}). Descriptions of the order were sometimes incomplete or inaccurate. Shin et al.\ and Tufts describe their orders as counterbalanced; the balancing is a Latin square within participant, and all participants receive the same square. In Tufts, rest after a block lasted 20, 20, 30 and 40\,s after 0-, 1-, 2- and 3-back (medians 20.0/20.0/29.6/39.8\,s across all participants), so rest length itself encodes the preceding load. Every non-initial 0-back follows a 3-back. For Chen et al., the paper states the order neutral, neutral, incongruent, incongruent. The EEG event codes (1-2-1-2) and the authors' own per-condition preprocessed files, matched back to the raw recordings (17 of 19 checkable participants), show neutral, incongruent, neutral, incongruent.
+At least eight public datasets present one sequence to every participant (Table~\ref{tab:census}, Fig.~\ref{fig:designs}). Shin and Tufts describe their orders as counterbalanced; both use a within-participant Latin square that is identical for all participants. In Tufts, rest after a block lasted 20, 20, 30 and 40\,s after 0-, 1-, 2- and 3-back (medians 20.0/20.0/29.6/39.8\,s), and every non-initial 0-back follows a 3-back. The Chen descriptor gives N-N-I-I; event codes and the authors' own per-condition files (17 of 19 checkable participants) show N-I-N-I. The Tufts raw release contains the first twelve blocks for only 9 of 68 participants; probes on Tufts therefore use blocks 14--16 (0-, 1-, 2-back), in which label and position are aliased.
 
 \begin{table}[htbp]
 \centering
-\caption{Presentation order in public EEG/fNIRS datasets. ``Data'' = verified from released event files in this study; ``Doc.'' = from documentation only.}
+\caption{Presentation order in public EEG/fNIRS datasets. ``Data'' = verified from released event files; ``Doc.'' = documentation only.}
 \label{tab:census}
 \footnotesize
 \begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.7cm}>{\raggedright\arraybackslash}p{1.8cm}r>{\raggedright\arraybackslash}X l@{}}
@@ -134,17 +158,17 @@ Table~\ref{tab:census} lists the datasets examined. At least eight present one s
 Dataset & Modality & $N$ & Order & Source \\
 \midrule
 \multicolumn{5}{@{}l}{\emph{Shared by all participants}}\\
-Shin 2018 n-back \citep{shin2018} & EEG+fNIRS & 26 & 9-block sequence per run, identical for all & Data \\
+Shin 2018 n-back \citep{shin2018} & EEG+fNIRS & 26 & three 9-block run orders, identical for all & Data \\
 Tufts fNIRS2MW \citep{huang2021} & fNIRS & 68 & 16 blocks \texttt{0123 1230 2301 3012}; rest length depends on load & Data \\
 Tufts NIRS-X (audio n-back) & fNIRS & 53 & same 16-block sequence & Doc. \\
-Chen 2023 Stroop \citep{chen2023} & EEG+fNIRS & 21 & N-I-N-I (paper text: N-N-I-I) & Data \\
-PhysioNet mental-fnirs \citep{mukli2021} & fNIRS & 12 & 0-1-0-2-back; 2-back always last & Data \\
-Rybář 2025 \citep{rybar2025} & EEG+fNIRS & 12 & identical stimulus sequence for participants 2--12 & Data \\
+Chen 2023 Stroop \citep{chen2023} & EEG+fNIRS & 21 & N-I-N-I (descriptor: N-N-I-I) & Data \\
+PhysioNet mental-fnirs \citep{mukli2021} & fNIRS & 12 & 0-1-0-2-back & Data \\
+Ryb\'a\v{r} 2025 \citep{rybar2025} & EEG+fNIRS & 12 & identical stimulus sequence for participants 2--12 & Data \\
 ZuCo 1.0/2.0 \citep{hollenstein2018} & EEG+eye & 12/18 & same sentences in same order & Doc. \\
 High-altitude Stroop (Sci Data 2024) & EEG+fNIRS & 80 & one fixed 120-trial sequence & Doc. \\
 \midrule
 \multicolumn{5}{@{}l}{\emph{Randomised per participant}}\\
-Shin 2018 word generation \citep{shin2018} & EEG+fNIRS & 26 & 24 distinct sequences; 10/10 per run; $P(\text{switch})=0.62$ & Data \\
+Shin 2018 word generation \citep{shin2018} & EEG+fNIRS & 26 & 24 distinct sequences; 10/10 per run & Data \\
 COG-BCI \citep{hinss2023} & EEG & 29 & task order pseudorandomised per session & Data \\
 \bottomrule
 \end{tabularx}
@@ -153,141 +177,151 @@ COG-BCI \citep{hinss2023} & EEG & 29 & task order pseudorandomised per session &
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{fig1_designs.pdf}
-\caption{Block sequences shared by all participants in the three datasets analysed. Shin: grey bars mark the 2\,s instruction; the orange mark shows a null window, which ends before the instruction. Tufts: grey segments are rest, whose length depends on the preceding load. Chen: the order recovered from the data.}
+\caption{Block sequences shared by all participants in the three datasets analysed. Shin: grey bars mark the 2\,s instruction; the orange mark shows a null window. Tufts: grey segments are rest, whose length depends on the preceding load. Chen: the order recovered from the data.}
 \label{fig:designs}
 \end{figure}
 
-\subsection{Data releases}
-\label{sec:res-data}
-The Tufts raw release contains the first twelve blocks for only 9 of 68 eligible participants. The final four blocks (3-, 0-, 1-, 2-back) are present for all 68. We verified this against the archive listing, so it is not a download error. The official filtered release keeps only task segments and was filtered zero-phase, so it cannot support a pre-onset probe. Null-window analyses of Tufts therefore use blocks 14--16 (0-, 1-, 2-back) of the raw release, each preceded by rest and an instruction. In these blocks, label and position are aliased, which makes them a strong case of shared order.
+\subsection{What the design alone allows, and what the diagnostic measures (simulation)}
+\label{sec:res-sim}
+\emph{Design-only ceilings} (Fig.~\ref{fig:sim}A). With the Tufts sequence, block position determines the condition (100\%) and the previous condition predicts it with 80\% accuracy (4 classes). Rotating Latin-square rows across subjects removes the position information (25\%) but leaves the transition information untouched (80\%), because every row is a cyclic shift of the same sequence. Per-subject random orders bring both to $\sim$28\%; a random order constrained by a rule common to all subjects (no immediate repeats) leaves 35\% from the previous condition. Balancing position across subjects therefore does not protect against carry-over; that requires sequences balanced for first-order residual effects \citep{williams1949} or per-subject randomisation.
 
-\subsection{The upcoming condition is decodable before onset in fNIRS}
-In Shin, fNIRS null windows ending 2\,s before the instruction decoded the upcoming load above chance under every filter (Fig.~\ref{fig:null}A, Table~\ref{tab:probe}): causal band-pass 39.6\% ($p=0.003$), causal low-pass only 39.9\% ($p=0.004$), and no filter 38.8\% ($p=0.004$). Zero-phase band-pass inflated this to 47.2\%. EEG from the same windows was at chance (34.3\%, $p=0.24$). A previously used window that ended at onset had suggested a small EEG effect, but it overlapped the instruction.
+\emph{Identifiability.} Over all 16 Tufts blocks, position and previous load are nearly uncorrelated ($r=-0.05$, condition number 1.06), and the regression recovered the true source in every simulated case (carry-over $\rightarrow$ previous load, $\beta=0.36$; drift $\rightarrow$ position, $\beta=1.11$; cross-terms $\le 0.02$). With load-dependent rest, previous load and rest duration were partly aliased (condition number 5.9), and in the final three blocks the design was singular (condition number $\sim 10^{16}$). Whether sources can be separated is thus a computable property of the design and of the blocks analysed.
 
-In Tufts, null windows at the end of rest decoded the upcoming load at 40.2\% with a strictly causal baseline ($p=0.019$) and at 50.0\% with the recording-mean baseline ($p=5\times10^{-5}$; within-subject permutation $p=0.002$) (Fig.~\ref{fig:null}B). Without any offset removal it was at chance (31.9\%). A per-subject constant cannot carry label information, so offset removal reveals, rather than creates, information that sits in the relative level of the windows. The confusion matrix was ordinal: 0- and 2-back were best separated and 1-back fell in between.
+\emph{Calibration.} Under pure noise the null-window probe was at chance in all designs (balanced accuracy 24.8--25.4\%). The within-subject permutation test rejected at $\alpha=0.05$ in 5.0\% (shared order), 7.5\% (Latin) and 9.0\% (random) of 200 runs; the Wilcoxon test behaved similarly (5.0, 7.0, 10.0\%). Both are close to nominal but not exact, which motivates the $p<0.01$ threshold.
 
-Applying Holm correction to the most conservative test of each dataset (Shin causal, Tufts causal baseline, Chen reversed pairs, BenchNIRS shifted window), all four remained below 0.05.
+\emph{Conditional decoding} (Fig.~\ref{fig:sim}B, Shin-like design). With carry-over only, null-window accuracy exceeded chance by 16.0\pp; holding the previous load fixed reduced this to 1.8\pp\ (the method's noise floor was 1.0--1.6\pp), while holding position fixed did not (27.5\pp). With drift only, the previous-load stratum retained 7.4\pp. A within-run position effect produced no leak, because Shin's run orders balance positions. The method thus distinguishes carry-over from drift.
+
+\emph{Does step 1 predict inflation?} No (Fig.~\ref{fig:diag}A). Carry-over produced strong null-window information but no task-decoding inflation, because it decays before the task window. Drift and position effects persist into the task window, but inflated task accuracy only when the positions evaluated were unbalanced across classes (final three blocks: +1.4 to +6.0\pp); over all 16 blocks, where Tufts' Latin square equalises mean position across classes, they only added noise. Step 2 tracked inflation (Fig.~\ref{fig:diag}B; $r=0.65$, $p=5\times10^{-4}$ in the unbalanced case): transfer was negative for carry-over and positive for drift and position.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{fig7_simulation.pdf}
+\caption{Design-level analysis and validation. (A) Accuracy obtainable from the design alone (no signal), predicting the condition from block position or from the previous condition, for four ways of assigning orders to subjects. (B) Conditional decoding of null windows in simulated Shin-like data with exactly one source present (mean $\pm$ SEM over 10 seeds) and in the real Shin data.}
+\label{fig:sim}
+\end{figure}
+
+\subsection{Step 1 in real data: order information before the cue}
+In Shin, fNIRS null windows decoded the upcoming load above chance (Table~\ref{tab:probe}, Fig.~\ref{fig:null}A): causal band-pass 40.0\% ($p_{\text{perm}}=0.002$); unfiltered 38.3\% ($p_{\text{perm}}=0.012$, supporting). Zero-phase filtering inflated the effect by about 7\pp. EEG from the same windows was at chance. In Tufts' final blocks, null windows decoded the upcoming load at 48.0\% with recording-mean offset removal ($p_{\text{perm}}=0.002$) and at 39.2\% with a strictly causal baseline ($p_{\text{perm}}=0.048$, supporting). In the same participants, WG with per-subject order gave 51.8\% ($p_{\text{perm}}=0.14$). Across six decoders, null-window information was present in every model (Shin $+3.8$ to $+11.4$\pp; Tufts $+16.7$ to $+28.7$\pp; Table~\ref{tab:bench}).
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{fig2_null_window.pdf}
-\caption{Null-window probe. Grey dots are participants. Coloured points and bars show the mean and bootstrap 95\% CI. (A) Shin n-back: fNIRS under four filters and EEG; windows end 2\,s before the instruction. BP, band-pass; LP, low-pass. (B) Tufts, raw blocks 14--16: null windows and task windows (20--24\,s after onset) with a causal baseline or the recording mean. Per-subject accuracies are multiples of 1/3 because each participant contributes three blocks.}
+\caption{Null-window probe, per participant (grey) with mean and bootstrap 95\% CI. (A) Shin n-back, fNIRS under four filters and EEG; windows end 2\,s before the instruction. BP, band-pass; LP, low-pass. (B) Tufts final blocks: null and task windows with a causal baseline or the recording mean.}
 \label{fig:null}
 \end{figure}
 
 \begin{table}[htbp]
 \centering
-\caption{Null-window probe, per-subject LOSO accuracy (mean), one-sided Wilcoxon test against chance.}
+\caption{Two-step diagnostic in real data (logistic regression, permutation tests, 500 permutations; minimum attainable $p=0.002$). Excess over chance in percentage points.}
 \label{tab:probe}
-\small
-\begin{tabular}{@{}llrrr@{}}
+\footnotesize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llrrrrrr@{}}
 \toprule
-Dataset (chance) & Setting & Accuracy & Excess & $p$ \\
+ & & \multicolumn{2}{c}{Step 1: null probe} & \multicolumn{2}{c}{Step 2: \Rr} & \multicolumn{2}{c}{Task decoding} \\
+Dataset & Setting & excess & $p$ & excess & $p$ & excess & $p$ \\
 \midrule
-Shin fNIRS (33.3\%) & zero-phase band-pass & 47.2 & +13.8 & $<10^{-4}$ \\
- & causal band-pass & 39.6 & +6.3 & 0.003 \\
- & causal low-pass only & 39.9 & +6.6 & 0.004 \\
- & no filter & 38.8 & +5.4 & 0.004 \\
-Shin EEG (33.3\%) & causal band-pass & 34.3 & +1.0 & 0.24 \\
-Tufts fNIRS (33.3\%) & causal baseline & 40.2 & +6.9 & 0.019 \\
- & recording mean & 50.0 & +16.7 & $5\times10^{-5}$ \\
- & no offset removal & 31.9 & $-1.5$ & 0.71 \\
-Shin WG fNIRS (50\%) & per-subject order & 51.9 & +1.9 & 0.13 \\
+Shin n-back (3 classes) & causal band-pass & +6.7 & 0.002 & +5.6 & 0.002 & +14.0 & 0.002 \\
+ & no filter & +5.0 & 0.012 & $-0.7$ & 0.69 & +12.0 & 0.002 \\
+Tufts, blocks 14--16 (3 classes) & causal baseline & +5.9 & 0.048 & +4.0 & 0.004 & +5.5 & 0.004 \\
+ & recording mean & +14.7 & 0.002 & +13.2 & 0.002 & +13.7 & 0.002 \\
+Tufts, blocks 14--16 (0 vs 2) & causal baseline & +5.9 & 0.13 & +8.5 & 0.002 & +8.8 & 0.002 \\
+ & recording mean & +20.6 & 0.002 & +20.4 & 0.002 & +20.3 & 0.002 \\
+Shin WG (per-subject order) & causal & +1.8 & 0.14 & -- & -- & -- & -- \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
-\subsection{Controls}
-In the positive control, the probe stayed at chance with no injected drift (33.8\%), detected half the observed drift (40.1\%), and with the full observed drift reproduced the real-data accuracy (48.7\% vs 48.0\%; Fig.~\ref{fig:controls}A). In Tufts' final blocks, a drift common to all participants is therefore enough to explain the leak. Because position and the preceding block are aliased there, these data cannot separate drift from carry-over.
+\subsection{Source of the leak in Shin: previous-block carry-over}
+Shin's three run orders make carry-over and position separable. In the real data (Fig.~\ref{fig:sim}B), unconditional null-window accuracy exceeded chance by 7.9\pp\ (unfiltered) and 5.4\pp\ (causal); holding the previous load fixed reduced this to 3.3\pp\ ($p=0.08$) and $-1.4$\pp, whereas holding position fixed left 13.1\pp\ and 19.1\pp\ ($p\le 10^{-4}$). This matches the simulated carry-over signature and not the drift signature, which retains information when the previous load is fixed.
 
-In the negative control, the same participants, montage and causal pipeline gave chance-level fNIRS probes when order was randomised per participant (WG: 51.9\%, $p=0.13$; Fig.~\ref{fig:controls}B), compared with +6.3\pp\ for n-back. The randomisation rule alone, without any brain data, would predict the current WG label with 62.2\% (``opposite of previous'') or 66.8\% (``class with more trials remaining in the run'') accuracy. Holding the previous label fixed, a small residual remained (balanced accuracy 52.7--54.2\%), well below what the rule allows. Constrained randomisation that is shared by all participants is thus itself a weak shared channel.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{fig3_controls.pdf}
-\caption{Controls. (A) Drift injection in Tufts: positions scrambled within participant, then $k$ times the observed group-mean drift added (mean $\pm$ SD over 20 repetitions). (B) Same participants and causal pipeline: n-back (shared order) versus word generation (per-subject order), accuracy minus chance. The orange tick shows what the WG randomisation rule alone predicts.}
-\label{fig:controls}
-\end{figure}
-
-\subsection{Order information in task decoding (Tufts)}
-On the raw final blocks with recording-mean offset removal, a decoder trained only on rest-end windows, which contain no task data and precede the instruction, matched a task-trained decoder on task windows (0 vs 2-back: 70.4\% vs 70.3\%; three classes: 46.5\% vs 47.1\%). The task-trained decoder classified the rest before a block at 68.4\% (Fig.~\ref{fig:benchmark}A). With the causal baseline the pattern held (rest-to-task 58.5\%, $p=3\times10^{-4}$; task-to-task 58.8\%). A strong zero-phase high-pass (0.001\,Hz) applied to the $\sim$600\,s final-block recording abolished the transfer and lowered task decoding to 59.3\%. This filter is far more aggressive than the official one, which was applied to the full $\sim$40\,min session, so it does not represent the official preprocessing.
-
-On the official data and protocol, a 0-vs-2-back logistic-regression decoder reached 64.2\% over all blocks (67.8\% on blocks 9--16). Its probability of ``0-back'' rose with session position at fixed true load (Fig.~\ref{fig:benchmark}B). In the regression, the position effect accumulated over the session (+0.078) was as large as the 2- versus 0-back difference ($-0.081$). A preceding 3-back added +0.044 ($p=7\times10^{-4}$). The only 0-back not preceded by a 3-back (position 1) was classified correctly in 44.9\% of windows, against 64.9\% for the other 0-backs ($p=0.0006$). Removing the preceding-3-back shift lowered accuracy on blocks 9--16 from 67.8\% to 63.7--64.0\%, i.e.\ about a quarter of the above-chance margin. This is a coarse linear estimate from the same data.
-
-The official DeepConvNet reached 62.0\% (66.5\% on blocks 9--16). Its output showed an even larger position effect (+0.0077 per block, $p=5\times10^{-6}$; 0.115 over the session, 84\% of the 2- vs 0-back difference) but no detectable preceding-3-back effect ($+0.007$, $p=0.71$; Fig.~\ref{fig:benchmark}C). Because Tufts' Latin square gives 0- and 2-back the same mean position, the position effect does not raise average accuracy in this protocol. Instead it produces position-dependent errors, for example 36\% correct for the 0-back at position 8.
+\subsection{Step 2: when order information enters task decoding}
+In Shin without filtering, transfer was at or below chance for all six decoders ($-5.0$ to $-2.1$\pp; Fig.~\ref{fig:diag}C, Table~\ref{tab:bench}): the carry-over seen before the cue does not reach the task window, and Shin task accuracy is not explained by order. A causal high-pass changed this modestly (transfer 0--20\% of task accuracy), consistent with the filter carrying slow components forward in time. In Tufts' final blocks, 42--100\% of task-decoding accuracy (median 73\%, 3-class; 58--92\%, median 76\%, 0 vs 2) was obtainable from pre-cue windows alone, and with a strictly causal baseline transfer matched task decoding (0 vs 2: +8.5 vs +8.8\pp). Across all dataset--model combinations, transfer correlated with task accuracy ($r=0.73$, $p=5\times10^{-5}$). Within a dataset the conclusion was the same for every decoder; what differed was the dataset and preprocessing, as the simulation predicts.
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=\textwidth]{fig4_benchmark.pdf}
-\caption{Tufts benchmark. (A) Transfer between task and rest-end windows, raw final blocks, 0 vs 2-back, recording-mean offset removal. (B, C) Probability of ``0-back'' from a 0-vs-2 decoder applied to all 16 blocks of held-out participants (official data and buckets), by position and true load (mean $\pm$ SEM over 68 participants). (B) Logistic regression; (C) the official DeepConvNet.}
-\label{fig:benchmark}
-\end{figure}
-
-\subsection{Reversed block pairs (Chen Stroop)}
-Without any pre-onset window, condition decoding from task windows was above chance for forward pairs (positions 1--2: 65.3\%, $p=0.001$; 3--4: 57.6\%, $p=0.035$) and at chance for the reversed pair (2--3: 47.2\%). The paired difference between forward and reverse pairs was significant (61.5\% vs 47.2\%, $p=0.011$, 15 of 18 participants; unfiltered: 60.4\% vs 47.2\%, $p=0.012$; Fig.~\ref{fig:stroop}). Across participants, Stroop condition is decodable here only when it agrees with time in session. A decoder trained to separate early from late blocks, with condition balanced, also separated positions 2 and 3 (64.6\%, $p=0.01$--0.02).
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.55\textwidth]{fig5_stroop.pdf}
-\caption{Chen Stroop: condition-decoding accuracy on forward pairs (neutral before incongruent) and on the reverse pair (incongruent before neutral). Lines connect participants; mean and bootstrap 95\% CI shown.}
-\label{fig:stroop}
-\end{figure}
-
-\subsection{Published methods}
-\textbf{BenchNIRS.} The published pipeline reproduced (LDA 39.2\% versus 38.9\% published). Shifting the markers 12\,s earlier, so that features came from $-12$ to $-2$\,s before onset, gave 37.1\% under the published 5-fold scheme. Under LOSO this was 37.9\% ($p=0.015$), versus 39.2\% ($p=0.0014$) for the published window, and the paired difference was not significant ($p=0.74$; Fig.~\ref{fig:repro}A). About 4.6 of the 5.8\pp\ above chance were available before the block began. A 16\,s shift gave 35.5\% ($p=0.08$).
-
-\textbf{Con4m.} The published result reproduced (F1 71.1\% versus 71.28\% published, one split). Re-concatenating blocks in per-participant random order did not change performance in any combination of training and test order (fixed$\to$fixed 69.1 $\pm$ 1.4\%, fixed$\to$shuffled 69.4 $\pm$ 1.6\%, shuffled$\to$fixed 70.6 $\pm$ 1.6\%, shuffled$\to$shuffled 69.2 $\pm$ 1.4\%; paired $p=0.19$; Fig.~\ref{fig:repro}B). Con4m uses the official task-only release, in which rest periods, the main carrier of order information here, have been removed.
-
-\textbf{Tufts DeepConvNet:} see above.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{fig6_reproductions.pdf}
-\caption{Re-running published methods. (A) BenchNIRS on Shin n-back: the published pipeline with the published window and with the same pipeline moved before block onset (LOSO, per participant). (B) Con4m on Tufts: segment F1 for every combination of training and test block order; grey dots are five test resamples, the dotted line is the published F1.}
-\label{fig:repro}
+\includegraphics[width=\textwidth]{fig8_diagnostic.pdf}
+\caption{Two-step diagnostic. (A, B) Simulation, shared order: task-decoding inflation (task accuracy with a temporal component minus without) against step 1 (A) and step 2 (B), for three components, four task effect sizes, and evaluation over all blocks (balanced positions) or the final three (unbalanced). (C) Real data: rest-to-task transfer against task decoding for six decoders in four settings; points on the dashed line mean that all task accuracy is obtainable from pre-cue windows.}
+\label{fig:diag}
 \end{figure}
 
 \begin{table}[htbp]
 \centering
-\caption{Published methods re-run under order-removing interventions.}
-\label{tab:repro}
+\caption{Six decoders: excess over chance (pp) for step 1 / step 2 / task decoding. $^{\dagger}$ one-sided Wilcoxon $p\ge 0.01$; all other non-negative entries $p<0.01$; negative entries not tested.}
+\label{tab:bench}
 \footnotesize
-\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.1cm}>{\raggedright\arraybackslash}p{1.7cm}>{\raggedright\arraybackslash}p{2.6cm}>{\raggedright\arraybackslash}X@{}}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-Method & Dataset & Reproduced (published) & Effect of removing order information \\
+Model & Shin, no filter & Shin, causal & Tufts 3-class & Tufts 0 vs 2 \\
 \midrule
-BenchNIRS LDA \citep{benerradi2023} & Shin n-back & 39.2\% (38.9\%) & 37.9\% from $-12$ to $-2$\,s before onset; paired $p=0.74$; $\sim$80\% of the margin pre-onset \\
-Tufts DeepConvNet \citep{huang2021} & Tufts & 62.0\% / 66.5\% & position shifts output by 84\% of the load effect; no preceding-block effect; mean accuracy not inflated \\
-Con4m \citep{chen2024con4m} & Tufts & F1 71.1\% (71.28\%) & no change with per-participant block order \\
+LogReg & 9.5 / $-3.7$ / 11.8 & 7.4 / 1.0$^{\dagger}$ / 14.8 & 21.1 / 6.9$^{\dagger}$ / 16.2 & 25.7 / 15.4 / 20.6 \\
+SVM-RBF & 11.4 / $-4.1$ / 16.1 & 10.8 / 2.6$^{\dagger}$ / 20.2 & 20.6 / 14.2 / 20.1 & 28.7 / 17.6 / 20.6 \\
+Random forest & 11.4 / $-2.8$ / 13.1 & 9.1 / 1.9$^{\dagger}$ / 20.1 & 21.6 / 18.1 / 24.0 & 22.1 / 18.4 / 25.7 \\
+EEGNet & 9.4 / $-5.0$ / 13.7 & 6.7 / 1.6$^{\dagger}$ / 15.8 & 21.6 / 10.8 / 17.2 & 23.5 / 10.3$^{\dagger}$ / 17.6 \\
+DeepConvNet-lite & 5.0 / $-2.1$ / 12.0 & 3.8$^{\dagger}$ / $-0.3$ / 15.8 & 24.0 / 12.7 / 12.7 & 26.5 / 17.6 / 19.1 \\
+LSTM & 6.0 / $-3.8$ / 10.3 & 7.3 / 3.0$^{\dagger}$ / 14.8 & 16.7 / 13.2 / 14.2 & 24.3 / 17.6 / 22.8 \\
+\midrule
+\Rr/task (median) & 0\% & 10\% & 73\% & 76\% \\
 \bottomrule
-\end{tabularx}
+\end{tabular}}
 \end{table}
 
-\subsection{An uninformative dataset}
-In PhysioNet mental-fnirs ($n=12$, one block per condition), no contrast, including 0- vs 2-back itself, was decodable across participants (43--57\%). The dataset is too small to audit, and we list it in the census only.
+\subsection{Controls}
+The drift-injection control stayed at chance with no injected drift (33.8\%), detected half the observed drift (40.1\%) and reproduced the real-data accuracy with the full drift (48.7\% vs 48.0\%; Fig.~\ref{fig:controls}A). WG with per-subject order was at chance (Fig.~\ref{fig:controls}B); its randomisation rule alone, without data, would predict the current label with 62--67\% accuracy, so shared randomisation rules are a weak shared channel in themselves.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{fig3_controls.pdf}
+\caption{Controls. (A) Drift injection in Tufts (mean $\pm$ SD over 20 repetitions). (B) Same participants and causal pipeline: n-back (shared order) versus WG (per-subject order), accuracy minus chance; the orange tick is what the WG randomisation rule alone predicts.}
+\label{fig:controls}
+\end{figure}
+
+\subsection{Reversed block pairs (Chen Stroop)}
+Without any pre-onset window, condition decoding from task windows was above chance for forward pairs (positions 1--2: 65.3\%; 3--4: 57.6\%) and at chance for the reversed pair (47.2\%); forward vs reverse 61.5\% vs 47.2\% (paired $p=0.011$, 15 of 18 participants; supporting; Fig.~\ref{fig:stroop}). Across participants, condition was decodable here only when it agreed with time in session.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.55\textwidth]{fig5_stroop.pdf}
+\caption{Chen Stroop: condition decoding on forward pairs (neutral first) and on the reverse pair (incongruent first). Lines connect participants.}
+\label{fig:stroop}
+\end{figure}
+
+\subsection{Published methods}
+\textbf{BenchNIRS} reproduced (LDA 39.2\% vs 38.9\% published). With markers shifted 12\,s earlier the same pipeline gave 37.9\% (LOSO; permutation $p=0.008$; published window $p=0.006$), not different from the published window (paired $p=0.74$; Fig.~\ref{fig:repro}A). BenchNIRS epochs include a baseline period and use a zero-phase filter, so its feature window is not cue-free in the sense of Section~\ref{sec:diagnostic}; this result therefore shows that its margin is available before the block, not why.
+\textbf{Tufts DeepConvNet} (62.0\% over 16 blocks; 66.5\% on blocks 9--16): its output shifted with session position by 84\% of the 2- vs 0-back effect (Fig.~\ref{fig:benchmark}), without a preceding-block effect ($p=0.71$). Because the Latin square equalises mean position across classes over 16 blocks, this did not raise mean accuracy, exactly as in the balanced-position simulation; it produced position-dependent errors instead.
+\textbf{Con4m} reproduced (F1 71.1\% vs 71.28\%) and was unaffected by per-participant block order (69.1--70.6\% in all training/test combinations; Fig.~\ref{fig:repro}B). It uses the task-only release, which contains no rest periods.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{fig4_benchmark.pdf}
+\caption{Tufts official data. (A) Transfer between task and rest-end windows, raw final blocks, 0 vs 2. (B, C) Probability of ``0-back'' from a 0-vs-2 decoder applied to all 16 blocks of held-out participants, by position and true load (mean $\pm$ SEM, $n=68$): (B) logistic regression, (C) official DeepConvNet.}
+\label{fig:benchmark}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{fig6_reproductions.pdf}
+\caption{Re-running published methods. (A) BenchNIRS on Shin: published window versus the same pipeline moved before onset (LOSO, per participant). (B) Con4m on Tufts: segment F1 for every combination of training and test block order; the dotted line is the published F1.}
+\label{fig:repro}
+\end{figure}
 
 %% ============================================================================
 \section{Discussion}
 \label{sec:discussion}
 
-When every participant receives the same sequence, holding out a participant does not hold out the sequence. In three fNIRS datasets, information about the upcoming condition was present before the block began and before any cue. In the most conservative analyses it amounted to about six to seven percentage points above chance. With conventional preprocessing it reached 12--17 points. In one benchmark, a decoder that never saw task data matched a task-trained decoder. A published benchmark result was largely available before onset.
+Holding out a participant does not hold out a shared sequence. Three findings go beyond earlier work on temporal confounds. First, at the design level, the label information in a sequence and the identifiability of its temporal sources can be computed before any data are analysed; a common remedy, rotating Latin-square rows across participants, removes position information but leaves all first-order transition information. Second, the presence of order information (step 1) and its effect on task decoding (step 2) are different questions with different answers: in Shin the leak is real but arises from carry-over that does not reach the task window, while in Tufts' final blocks most task-decoding accuracy is obtainable without task data. Third, these outcomes were consistent across six decoders within each dataset, and the simulation, in which the truth is known, reproduces both patterns from their mechanisms.
 
-\textbf{Why subject-independent splits worked in earlier studies but not here.} Li et al.\ and Ahmed et al.\ found chance-level accuracy when they analysed the OP1 image-EEG data across subjects \citep{li2021,ahmed2022}, and so did a ``watermelon EEG'' control \citep{xu2026}. Leakage across subjects requires temporal structure that is both time-locked to the session and consistent across people. Block-design workload tasks provide it: haemodynamic carry-over, recovery after demanding blocks, rest lengths that depend on load, and drift in fNIRS baselines. Rapid image presentation and inert objects do not. Consistent with this, the effect was clear in fNIRS and absent in EEG band power from the same windows.
+\textbf{Why LOSO restored chance in earlier studies.} Leakage across subjects requires temporal structure that is time-locked to the session and consistent across people. Haemodynamic carry-over, load-dependent rest and shared drift in fNIRS provide it; rapid image presentation in EEG \citep{li2021,ahmed2022} and inert objects \citep{xu2026} do not. Consistent with this, EEG band power in the same windows carried no order information.
 
-\textbf{The effect depends on the pipeline.} Not all decoders exploit the shared order. Con4m was unaffected, which we attribute to the task-only release it consumes. DeepConvNet's output tracked session position strongly, but in Tufts' Latin square this did not inflate mean accuracy. The relevant variables are whether rest or pre-onset periods enter the analysis, whether windows are locked to block onset, the filter phase, and how between-subject offsets are removed. For this reason we propose a diagnostic rather than a correction factor.
+\textbf{Apparent inconsistencies are predictable.} The original version of this work reported that some published decoders were affected and others not. The diagnostic explains this: Con4m consumes data without rest periods; DeepConvNet over all 16 Tufts blocks is evaluated with positions balanced across classes, so position effects add errors rather than accuracy; and BenchNIRS uses windows in which the margin is available before the block. A single number such as ``inflation'' is therefore not a property of a model, and we recommend reporting the two diagnostic steps rather than a correction factor.
 
-\textbf{Relation to prior work.} Barbu et al.\ noted, for an fMRI study, that a fixed order may let cross-subject classifiers use preceding stimuli, and suggested randomising order or cross-validating by subject and run \citep{barbu2015}. Within-subject temporal confounds in block designs \citep{li2021,ahmed2022,xu2026}, filter-induced pre-onset decoding \citep{vandriel2021}, pre-stimulus sanity checks \citep{grootswagers2017}, sequence-dependence explanations of pre-onset effects \citep{schonmann2026}, design-variable probes \citep{gorgen2018}, and shared-stimulus confounds in cross-subject benchmarks \citep{hu2021,yin2023,kilgallen2025} are related. To our knowledge, none quantifies shared-order leakage under subject-independent evaluation in EEG/fNIRS benchmarks or offers a dedicated control for it.
+\textbf{Limitations.} Real-data effects in the most conservative settings are moderate (+5 to +9\pp). Tufts' raw release restricts the probe to three blocks per participant, in which sources are not identifiable; the Tufts decomposition therefore rests on simulation and on the step-2 result. The permutation test was close to but not exactly nominal in simulation, so we required $p<0.01$; Wilcoxon tests for deep networks share this caveat. The simulation's components and magnitudes are a model, not a fit to every dataset. Con4m was run on one split with one seed, and the DeepConvNet re-run used a reduced grid.
 
-\textbf{Limitations.} Effect sizes in conservative analyses are moderate. In single fixed sequences, position, preceding block and rest length are aliased, so the mechanism cannot be fully decomposed. Tufts' raw release limits the null-window probe to three blocks per participant. Con4m was run on one of twelve splits with one training seed. The DeepConvNet re-run deviated from the official grid for CPU time. The negative control shares participants and session with the positive dataset but uses a different task.
-
-\textbf{Recommendations.}
-(1) Randomise condition order per participant, and do not apply one randomisation rule identically to all participants; if a rule is used, report the accuracy it alone permits.
-(2) Release per-participant event timing, including rest and cue periods, and check that the descriptor matches the data.
-(3) Accompany subject-independent results with a null-window probe ending before any cue, or a reversed-pair test where the design allows.
-(4) Avoid zero-phase filtering and per-block baselines that overlap the windows being compared.
+\textbf{Recommendations.} (1) Randomise condition order per participant, or use sequences balanced for first-order carry-over \citep{williams1949}; do not rely on Latin squares rotated across subjects. (2) Avoid randomisation rules shared by all participants, or report the accuracy they permit. (3) Release per-participant event timing including rest and cue periods, and check descriptors against the data. (4) For LOSO results on shared-order data, report the null-window probe and rest-to-task transfer, with permutation statistics that re-run the whole pipeline. (5) Avoid zero-phase filters and per-block baselines that overlap the windows compared.
 
 \section{Conclusions}
-Shared presentation order is common in public EEG/fNIRS datasets, and subject-independent evaluation does not neutralise it. A simple null-window probe, with the controls described here, can show whether a reported decoding result could have been obtained before the task began.
+Shared presentation order is common in public EEG/fNIRS datasets and is not neutralised by subject-independent evaluation. Whether it matters for a reported decoding result is not a property of the model but of the design, the preprocessing and the windows analysed, and it can be assessed with a two-step diagnostic that has been validated against ground truth.
 
 \section*{CRediT authorship contribution statement}
 \textbf{Pinzhen He:} Conceptualization, Methodology, Software, Validation, Formal analysis, Investigation, Data curation, Visualization, Writing -- original draft, Writing -- review \& editing.
